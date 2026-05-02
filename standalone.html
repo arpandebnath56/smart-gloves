@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <title>Smart Sign Language Translator</title>
+  <style>
+  /* AR Modal */
+  #arModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:1rem;}
+  #arModal.open{display:flex;}
+  #arModal model-viewer{width:min(90vw,520px);height:min(90vw,520px);background:#0f172a;border-radius:16px;border:2px solid #38bdf8;box-shadow:0 0 40px rgba(56,189,248,.4);}
+  #arModalClose{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:.65rem 1.6rem;border-radius:8px;font-size:1rem;cursor:pointer;font-family:inherit;transition:background .2s;}
+  #arModalClose:hover{background:rgba(255,255,255,.2);}
+  #arModalHint{color:#94a3b8;font-size:.82rem;text-align:center;}
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --muted: #94a3b8;
+      --blue: #38bdf8; --blue-g: rgba(56,189,248,0.5);
+      --green: #4ade80; --green-g: rgba(74,222,128,0.5);
+      --red: #f87171;  --red-g: rgba(248,113,113,0.5);
+      --orange: #fbbf24;
+      --font: 'Inter', system-ui, sans-serif;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;}
+    .app{max-width:1200px;margin:0 auto;padding:2rem 1rem;display:flex;flex-direction:column;gap:2rem;animation:slideUp .6s ease;}
+    .card{background:var(--card);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:1.5rem;box-shadow:0 4px 24px rgba(0,0,0,.4);transition:border-color .3s,box-shadow .3s;}
+    .card:hover{border-color:rgba(56,189,248,.3);box-shadow:0 0 20px rgba(56,189,248,.15);}
+
+    /* Header */
+    header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;}
+    header h1{font-size:1.8rem;font-weight:800;background:linear-gradient(to right,#fff,var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    header p{color:var(--muted);font-size:.9rem;margin-top:.2rem;}
+    .header-btns{display:flex;gap:1rem;align-items:center;}
+    .ar-btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#fff;padding:.6rem 1.2rem;border-radius:8px;font-weight:600;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:.5rem;transition:all .3s;font-size:.95rem;}
+    .ar-btn:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.4);transform:translateY(-2px);}
+    .connect-btn{background:transparent;color:var(--blue);border:2px solid var(--blue);padding:.6rem 1.2rem;border-radius:8px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:.5rem;transition:all .3s;font-size:.95rem;}
+    .connect-btn:hover:not(:disabled){background:var(--blue);color:#000;box-shadow:0 0 15px var(--blue-g);}
+    .connect-btn:disabled{opacity:.7;cursor:not-allowed;}
+    .connect-btn.connecting{border-color:var(--orange);color:var(--orange);}
+    .connect-btn.connected{border-color:var(--green);color:var(--green);}
+    .connect-btn.connected:hover{background:var(--green);color:#000;box-shadow:0 0 15px var(--green-g);}
+    .dot{width:10px;height:10px;border-radius:50%;background:var(--red);transition:all .3s;}
+    .dot.connecting{background:var(--orange);animation:blink 1s infinite;}
+    .dot.connected{background:var(--green);animation:glowGreen 2s infinite;}
+
+    /* Main grid */
+    main{display:grid;grid-template-columns:1fr;gap:2rem;}
+    @media(min-width:860px){main{grid-template-columns:3fr 2fr;}}
+    .left-col{display:flex;flex-direction:column;gap:2rem;}
+
+    /* Output Display */
+    .output{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:340px;text-align:center;position:relative;overflow:hidden;transition:border-color .4s,box-shadow .4s;}
+    .output.processing,.output.receiving{border-color:var(--blue);box-shadow:0 0 20px var(--blue-g);}
+    .output.success{border-color:var(--green);animation:glowSuccessCard 1.5s ease-out;}
+    .output.error{border-color:var(--red);animation:glowErrorCard .6s ease-out;}
+    .status-bar{position:absolute;top:1rem;left:1rem;right:1rem;display:flex;justify-content:space-between;font-size:.82rem;color:var(--muted);font-weight:600;letter-spacing:1px;}
+    .blink{animation:blink 1.2s infinite;}
+
+    /* Video box */
+    .vbox{width:240px;height:240px;background:#020617;border:2px solid rgba(56,189,248,.2);border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;box-shadow:inset 0 0 20px rgba(0,0,0,.8);transition:border-color .4s,box-shadow .4s;margin-bottom:1rem;}
+    .scanline{position:absolute;top:0;left:0;width:100%;height:10px;background:rgba(56,189,248,.4);animation:scan 3s linear infinite;z-index:10;box-shadow:0 0 10px rgba(56,189,248,.8);}
+    .ph{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;z-index:2;position:relative;}
+    .big-icon{font-size:5rem;filter:drop-shadow(0 0 14px var(--blue-g));}
+    .vtext{font-family:monospace;font-size:.82rem;color:var(--blue);letter-spacing:1px;}
+    .radar{position:absolute;top:50%;left:50%;width:180px;height:180px;border-radius:50%;border:1px solid rgba(56,189,248,.35);transform:translate(-50%,-50%);animation:radar 1.5s ease-out infinite;}
+    .radar2{animation-delay:.75s;}
+
+    /* Gesture visual */
+    .gv-wrap{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+    .orbit{position:absolute;border-radius:50%;border:1.5px solid var(--gc);opacity:.35;width:140px;height:140px;animation:spin 3s linear infinite;}
+    .orbit2{width:200px;height:200px;opacity:.15;animation-duration:5s;animation-direction:reverse;}
+    .gv-icon{font-size:5.5rem;position:relative;z-index:5;filter:drop-shadow(0 0 18px var(--gg));}
+    .particle{position:absolute;top:50%;left:50%;color:var(--gc);font-size:1.1rem;font-weight:bold;opacity:.8;animation:orbit-p 2.5s linear infinite;transform-origin:0 0;}
+    .hud{position:absolute;width:18px;height:18px;border-color:var(--gc);border-style:solid;opacity:.7;animation:hud-blink 2s ease-in-out infinite;}
+    .tl{top:10px;left:10px;border-width:2px 0 0 2px;}
+    .tr{top:10px;right:10px;border-width:2px 2px 0 0;}
+    .bl{bottom:10px;left:10px;border-width:0 0 2px 2px;}
+    .br{bottom:10px;right:10px;border-width:0 2px 2px 0;}
+
+    /* Progress bar */
+    .prog{width:60%;height:6px;background:rgba(255,255,255,.1);border-radius:3px;margin-top:1.5rem;overflow:hidden;}
+    .prog-bar{height:100%;background:linear-gradient(90deg,transparent,var(--blue),transparent);animation:progLoad 1s cubic-bezier(.4,0,.2,1) infinite;}
+
+    /* Output text */
+    .out-text{font-size:3.2rem;font-weight:800;margin-top:.8rem;text-transform:uppercase;letter-spacing:3px;animation:slideUp .4s ease-out;}
+    .desc-text{font-size:.82rem;font-family:monospace;letter-spacing:1px;margin-top:.35rem;opacity:.75;animation:fadeIn .5s;}
+
+    /* Gesture Pad */
+    .pad-title{font-size:1rem;font-weight:700;color:var(--muted);letter-spacing:2px;margin-bottom:1rem;}
+    .gesture-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:1rem;}
+    .g-btn{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);color:var(--text);border-radius:12px;padding:1rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.5rem;transition:all .2s;font-family:var(--font);}
+    .g-btn:hover:not(:disabled){background:rgba(56,189,248,.1);border-color:var(--blue);transform:translateY(-2px);box-shadow:0 5px 15px rgba(0,0,0,.3);}
+    .g-btn:active:not(:disabled){transform:translateY(1px);}
+    .g-btn:disabled{opacity:.35;cursor:not-allowed;}
+    .g-icon{font-size:2.2rem;}
+    .g-label{font-size:.85rem;font-weight:600;}
+
+    /* Learning Panel */
+    .learn-title{font-size:1rem;font-weight:700;color:var(--muted);letter-spacing:2px;margin-bottom:.8rem;}
+    .learn-list{display:flex;flex-direction:column;gap:.5rem;}
+    .learn-item{display:flex;align-items:center;gap:1rem;padding:.75rem;border-radius:8px;border:1px solid transparent;transition:all .3s;background:rgba(255,255,255,.02);}
+    .learn-item.active{background:rgba(56,189,248,.15);border-color:var(--blue);box-shadow:0 0 15px var(--blue-g),inset 0 0 10px rgba(56,189,248,.2);transform:scale(1.03);}
+    .learn-icon-box{font-size:1.8rem;width:46px;height:46px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.2);border-radius:8px;}
+    .learn-label{font-weight:700;font-size:.95rem;}
+    .learn-desc{font-size:.78rem;color:var(--muted);margin-top:.15rem;}
+
+    /* Animations */
+    @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+    @keyframes scan{0%{transform:translateY(-10px)}100%{transform:translateY(240px)}}
+    @keyframes radar{0%{transform:translate(-50%,-50%) scale(.5);opacity:1}100%{transform:translate(-50%,-50%) scale(1.6);opacity:0}}
+    @keyframes glowSuccessCard{0%{box-shadow:0 0 5px var(--green-g)}50%{box-shadow:0 0 30px var(--green)}100%{box-shadow:0 0 5px var(--green-g)}}
+    @keyframes glowErrorCard{0%{box-shadow:0 0 5px var(--red-g)}50%{box-shadow:0 0 35px var(--red)}100%{box-shadow:0 0 5px var(--red-g)}}
+    @keyframes glowGreen{0%,100%{box-shadow:0 0 4px var(--green-g)}50%{box-shadow:0 0 12px var(--green)}}
+    @keyframes progLoad{0%{width:0%}100%{width:100%}}
+    @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+    @keyframes orbit-p{0%{opacity:.9}50%{opacity:.4}100%{opacity:.9}}
+    @keyframes hud-blink{0%,100%{opacity:.35}50%{opacity:1}}
+    @keyframes wave-anim{0%,100%{transform:rotate(-15deg) scale(1)}25%{transform:rotate(15deg) scale(1.1)}50%{transform:rotate(-10deg) scale(1.05)}75%{transform:rotate(10deg) scale(1.1)}}
+    @keyframes bow-anim{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-12px) scale(1.08)}}
+    @keyframes pulse-anim{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+    @keyframes drip-anim{0%,100%{transform:translateY(0)}40%{transform:translateY(12px)}60%{transform:translateY(6px)}}
+    @keyframes nod-anim{0%,100%{transform:translateY(0) rotate(0)}33%{transform:translateY(-10px) rotate(-5deg)}66%{transform:translateY(8px) rotate(3deg)}}
+    @keyframes shake-anim{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-14px) rotate(-8deg)}75%{transform:translateX(14px) rotate(8deg)}}
+    @keyframes float-anim{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-10px) scale(1.05)}}
+  </style>
+</head>
+<body>
+<!-- AR Modal -->
+<div id="arModal">
+  <model-viewer
+    src="https://modelviewer.dev/shared-assets/models/RobotExpressive.glb"
+    alt="3D Sign Language Glove AR Model"
+    ar ar-modes="webxr scene-viewer quick-look"
+    camera-controls
+    auto-rotate
+    shadow-intensity="1"
+    style="--progress-bar-color:#38bdf8;"
+  >
+    <button slot="ar-button" class="ar-btn" style="position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);">📱 Place in Your Room</button>
+  </model-viewer>
+  <p id="arModalHint">🖥️ Desktop: rotate & zoom the 3D model<br>📱 Mobile: tap "Place in Your Room" for live AR</p>
+  <button id="arModalClose" onclick="document.getElementById('arModal').classList.remove('open')">✕ Close</button>
+</div>
+<div class="app">
+  <!-- Header -->
+  <header class="card" id="header">
+    <div>
+      <h1>Smart Sign Translator</h1>
+      <p>Real-time AI gesture recognition simulator</p>
+    </div>
+    <div class="header-btns">
+      <button class="ar-btn" onclick="document.getElementById('arModal').classList.add('open')">👓 View in AR</button>
+      <button class="connect-btn disconnected" id="connectBtn" onclick="handleConnect()">
+        <div class="dot disconnected" id="dot"></div>
+        <span id="connectLabel">Connect Glove</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main>
+    <div class="left-col">
+      <!-- Output Display -->
+      <div class="card output idle" id="output">
+        <div class="status-bar">
+          <span id="statusLabel">● SYSTEM READY</span>
+          <span id="confLabel" style="font-family:monospace;color:var(--muted);"></span>
+        </div>
+
+        <div class="vbox" id="vbox">
+          <div class="scanline"></div>
+          <div class="ph" id="vph">
+            <div class="big-icon" style="opacity:.3;animation:float-anim 3s ease-in-out infinite;">🖐️</div>
+            <div class="vtext">AWAITING CONNECTION</div>
+          </div>
+        </div>
+
+        <div class="prog" id="progBar" style="display:none;"><div class="prog-bar"></div></div>
+
+        <div class="out-text" id="outText" style="display:none;"></div>
+        <div class="desc-text" id="descText" style="display:none;"></div>
+        <div id="statusSub" style="color:var(--muted);font-size:1.1rem;margin-top:1rem;">Waiting for gesture input</div>
+      </div>
+
+      <!-- Gesture Pad -->
+      <div class="card" id="gesturePad">
+        <div class="pad-title">GESTURE PAD — MANUAL OVERRIDE</div>
+        <div class="gesture-grid" id="gestureGrid"></div>
+      </div>
+    </div>
+
+    <!-- Learning Panel -->
+    <aside>
+      <div class="card" style="height:100%;">
+        <div class="learn-title">LEARNING MODE</div>
+        <div class="learn-list" id="learnList"></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+const GESTURES = [
+  { id:'hello',    label:'Hello',    icon:'👋', desc:'Wave hand left to right',       color:'#38bdf8', glow:'rgba(56,189,248,.6)',   anim:'wave-anim',  particles:['✦','✧','⋆','✦','✧'] },
+  { id:'thank_you',label:'Thank You',icon:'🙏', desc:'Fingers to chin, forward',      color:'#a78bfa', glow:'rgba(167,139,250,.6)',  anim:'bow-anim',   particles:['♡','✿','♡','✦','✿'] },
+  { id:'help',     label:'Help',     icon:'🆘', desc:'Fist inside open palm, raise',  color:'#f87171', glow:'rgba(248,113,113,.6)',  anim:'pulse-anim', particles:['!','⚠','!','⚠','!'] },
+  { id:'water',    label:'Water',    icon:'💧', desc:'W-shape fingers to lips',       color:'#22d3ee', glow:'rgba(34,211,238,.6)',   anim:'drip-anim',  particles:['~','≈','~','≈','~'] },
+  { id:'yes',      label:'Yes',      icon:'👍', desc:'Fist nod up and down',          color:'#4ade80', glow:'rgba(74,222,128,.6)',   anim:'nod-anim',   particles:['✓','✔','✓','✔','✓'] },
+  { id:'no',       label:'No',       icon:'👎', desc:'Index finger wag side to side', color:'#fb923c', glow:'rgba(251,146,60,.6)',   anim:'shake-anim', particles:['✗','×','✗','×','✗'] },
+];
+
+// Build gesture pad
+const grid = document.getElementById('gestureGrid');
+GESTURES.forEach(g => {
+  const btn = document.createElement('button');
+  btn.className = 'g-btn';
+  btn.id = 'gbtn_' + g.id;
+  btn.disabled = true;
+  btn.innerHTML = `<div class="g-icon">${g.icon}</div><div class="g-label">${g.label}</div>`;
+  btn.onclick = () => manualTrigger(g);
+  grid.appendChild(btn);
+});
+
+// Build learning panel
+const learnList = document.getElementById('learnList');
+GESTURES.forEach(g => {
+  const item = document.createElement('div');
+  item.className = 'learn-item';
+  item.id = 'learn_' + g.id;
+  item.innerHTML = `<div class="learn-icon-box">${g.icon}</div><div><div class="learn-label">${g.label}</div><div class="learn-desc">${g.desc}</div></div>`;
+  learnList.appendChild(item);
+});
+
+let connectionState = 'disconnected';
+let seqId = 0;
+let isAuto = false;
+let gestureIndex = 0;
+
+function wait(ms, id) {
+  return new Promise((res, rej) => setTimeout(() => seqId === id ? res() : rej(), ms));
+}
+
+function playBeep(freq = 440, dur = 0.15, type = 'sine') {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.3, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    o.start(); o.stop(ctx.currentTime + dur);
+  } catch(e){}
+}
+
+function setStatus(s, gesture, conf) {
+  const out = document.getElementById('output');
+  const statusLabel = document.getElementById('statusLabel');
+  const confLabel = document.getElementById('confLabel');
+  const progBar = document.getElementById('progBar');
+  const outText = document.getElementById('outText');
+  const descText = document.getElementById('descText');
+  const statusSub = document.getElementById('statusSub');
+  const vbox = document.getElementById('vbox');
+  const vph = document.getElementById('vph');
+
+  out.className = 'card output ' + s;
+  progBar.style.display = 'none';
+  outText.style.display = 'none';
+  descText.style.display = 'none';
+  statusSub.style.display = 'none';
+  confLabel.textContent = '';
+
+  // Reset all learning highlights
+  GESTURES.forEach(g => document.getElementById('learn_' + g.id).classList.remove('active'));
+
+  if (s === 'idle') {
+    statusLabel.textContent = '● SYSTEM READY';
+    vbox.style.cssText = '';
+    vph.innerHTML = `<div class="big-icon" style="opacity:.3;animation:float-anim 3s ease-in-out infinite;">🖐️</div><div class="vtext">AWAITING CONNECTION</div>`;
+    statusSub.textContent = 'Waiting for gesture input'; statusSub.style.display = '';
+  } else if (s === 'processing') {
+    statusLabel.innerHTML = `<span class="blink">► ML MODEL PROCESSING...</span>`;
+    vbox.style.cssText = 'border-color:var(--blue);box-shadow:0 0 20px var(--blue-g);';
+    vph.innerHTML = `<div class="big-icon" style="animation:float-anim 1s ease-in-out infinite;">🖐️</div><div class="radar"></div><div class="radar radar2"></div><div class="vtext blink">ANALYZING GESTURE...</div>`;
+    progBar.style.display = '';
+  } else if (s === 'success' && gesture) {
+    statusLabel.textContent = '✔ MATCH FOUND';
+    confLabel.textContent = 'CONF: ' + conf + '%';
+    vbox.style.cssText = `border-color:${gesture.color};box-shadow:0 0 28px ${gesture.glow};`;
+    vph.innerHTML = buildGestureVisual(gesture);
+    outText.textContent = gesture.label;
+    outText.style.cssText = `display:block;color:${gesture.color};text-shadow:0 0 20px ${gesture.glow};`;
+    descText.textContent = gesture.desc; descText.style.cssText = `display:block;color:${gesture.color};`;
+    document.getElementById('learn_' + gesture.id).classList.add('active');
+    speak(gesture.label);
+  } else if (s === 'error') {
+    statusLabel.innerHTML = `<span style="color:var(--red)">✘ RECOGNITION FAILED</span>`;
+    confLabel.textContent = 'CONF: ' + conf + '%';
+    vbox.style.cssText = 'border-color:var(--red);box-shadow:0 0 20px var(--red-g);';
+    vph.innerHTML = `<div class="big-icon" style="color:var(--red);font-size:3.5rem;animation:pulse-anim .8s ease-in-out infinite;filter:drop-shadow(0 0 14px var(--red-g))">❓</div><div class="vtext blink" style="color:var(--red)">TRACKING LOST</div>`;
+    outText.textContent = 'UNKNOWN'; outText.style.cssText = 'display:block;color:var(--red);';
+    speak('Unknown gesture');
+  }
+}
+
+function buildGestureVisual(g) {
+  let particles = g.particles.map((p, i) => {
+    const angle = i * 72;
+    return `<span class="particle" style="--gc:${g.color};color:${g.color};animation:orbit-p 2.5s linear ${i * 0.35}s infinite;transform:rotate(${angle}deg) translateX(85px);">${p}</span>`;
+  }).join('');
+  return `
+    <div class="gv-wrap" style="--gc:${g.color};--gg:${g.glow};">
+      <div class="orbit" style="border-color:${g.color};"></div>
+      <div class="orbit orbit2" style="border-color:${g.color};"></div>
+      <div class="gv-icon" style="animation:${g.anim} 1.4s ease-in-out infinite;filter:drop-shadow(0 0 18px ${g.glow});">${g.icon}</div>
+      ${particles}
+      <div class="hud tl" style="border-color:${g.color};"></div>
+      <div class="hud tr" style="border-color:${g.color};"></div>
+      <div class="hud bl" style="border-color:${g.color};"></div>
+      <div class="hud br" style="border-color:${g.color};"></div>
+      <div class="scanline"></div>
+    </div>`;
+}
+
+let lastSpoken = null;
+function speak(text) {
+  if (lastSpoken === text) return;
+  lastSpoken = text;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9; u.pitch = 1.1;
+  window.speechSynthesis.speak(u);
+}
+
+async function runSequence() {
+  seqId++; const id = seqId;
+  try {
+    const g = GESTURES[gestureIndex];
+    setStatus('processing', null, 0);
+    playBeep(440, 0.1, 'square');
+    await wait(1000, id);
+    if (Math.random() > 0.1) {
+      const conf = Math.floor(Math.random() * 8) + 92;
+      setStatus('success', g, conf);
+      playBeep(660, 0.2, 'sine');
+    } else {
+      const conf = Math.floor(Math.random() * 30) + 15;
+      setStatus('error', null, conf);
+      playBeep(220, 0.3, 'sawtooth');
+    }
+    await wait(2000, id);
+    if (isAuto) {
+      gestureIndex = (gestureIndex + 1) % GESTURES.length;
+      runSequence();
+    }
+  } catch(e) {}
+}
+
+function manualTrigger(gesture) {
+  if (connectionState !== 'connected') return;
+  isAuto = false;
+  seqId++; const id = seqId;
+  playBeep(880, 0.08, 'triangle');
+  lastSpoken = null;
+  setStatus('success', gesture, 99);
+  wait(5000, id).then(() => { isAuto = true; gestureIndex = 0; runSequence(); }).catch(()=>{});
+}
+
+function handleConnect() {
+  const btn = document.getElementById('connectBtn');
+  const dot = document.getElementById('dot');
+  const label = document.getElementById('connectLabel');
+
+  if (connectionState === 'disconnected') {
+    connectionState = 'connecting';
+    btn.className = 'connect-btn connecting'; btn.disabled = true;
+    dot.className = 'dot connecting'; label.textContent = 'Establishing...';
+    playBeep(550, 0.2);
+    setTimeout(() => {
+      connectionState = 'connected';
+      btn.className = 'connect-btn connected'; btn.disabled = false;
+      dot.className = 'dot connected'; label.textContent = 'Glove Connected';
+      document.querySelectorAll('.g-btn').forEach(b => b.disabled = false);
+      isAuto = true; gestureIndex = 0;
+      playBeep(880, 0.15);
+      runSequence();
+    }, 2000);
+  } else {
+    connectionState = 'disconnected';
+    seqId++; isAuto = false; lastSpoken = null;
+    btn.className = 'connect-btn disconnected'; btn.disabled = false;
+    dot.className = 'dot disconnected'; label.textContent = 'Connect Glove';
+    document.querySelectorAll('.g-btn').forEach(b => b.disabled = true);
+    setStatus('idle', null, 0);
+  }
+}
+</script>
+</body>
+</html>
